@@ -1,0 +1,32 @@
+Package: essora-vm
+Maintainer: josejp2424 <puppylinuxjosejp2424@gmail.com>
+Architecture: amd64
+Version: 1.2-essora
+Installed-Size: 131
+Depends: qemu-system, qemu-system-x86, qemu-utils, qemu-system-common, libvirt-daemon-system, libvirt-daemon-system-sysv, python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-gdkpixbuf-2.0, xdotool
+Provides: Utility
+Section:  Utility
+Priority: optional
+Homepage: https://github.com/josejp2424/essora-vm
+Description: Essora VM - QEMU Virtual Machine Manager for Essora Linux
+ Essora VM is a lightweight graphical frontend for QEMU built with
+ Python 3 and GTK3, designed specifically for Essora Linux (Devuan base).
+ .
+ It allows users to create, configure and run virtual machines without
+ using the command line. Each VM is stored as a simple JSON profile and
+ disk images are created automatically in qcow2 format using qemu-img.
+ .
+ Features:
+  - Create and manage multiple virtual machines
+  - KVM acceleration support with one-click toggle
+  - Live screen preview via QEMU monitor socket (screendump)
+  - ISO image selection for installation
+  - CPU and RAM sliders with real-time values
+  - Multilingual interface: English, Spanish, Arabic, Catalan,
+    German, French, Italian, Portuguese, Japanese, Hungarian,
+    Russian and Chinese
+  - Essora branding with custom logo and banner support
+  - No system titlebar, centered window, clean dark GTK3 theme
+ .
+ Author: josejp2424 — Essora Developer
+ License: GPL-3.0|

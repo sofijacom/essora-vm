@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+GKSU="/usr/local/essora-vm/gksu"
+"$GKSU" /usr/local/essora-vm/essora-vm.py
