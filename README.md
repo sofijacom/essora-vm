@@ -82,7 +82,7 @@ essora-vm /path/to/image.iso
 ## Screenshots
 
 <p align="center">
-  <img src="assets/essora-vm.png" alt="Essora VM Screenshot" width="900">
+  <img src="assets/essora-vm-1.png" alt="Essora VM Screenshot" width="900">
 </p>
 
 ---
