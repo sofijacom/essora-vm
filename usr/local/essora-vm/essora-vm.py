@@ -751,15 +751,49 @@ class NewVMDialog(Gtk.Dialog):
         except Exception as e:
             self.err_label.set_markup(f'<span color="#f87171">qemu-img: {e}</span>')
             return None
+        arch = self.arch_combo.get_active_text() or "x86_64"
+
+        # Smart defaults per architecture
+        _needs_extra = ("riscv" in arch or "arm" in arch or "aarch" in arch or "mips" in arch or "ppc" in arch or "s390" in arch or "sparc" in arch)
+        defaults = {}
+        if "riscv64" in arch:
+            defaults = {
+                "machine":    "virt",
+                "bios":       "/usr/lib/riscv64-linux-gnu/opensbi/generic/fw_dynamic.bin",
+                "kernel":     "/usr/lib/u-boot/qemu-riscv64_smode/uboot.elf",
+                "extra_args": "",
+                "kvm":        False,
+            }
+        elif "aarch64" in arch or "arm64" in arch:
+            defaults = {
+                "machine":    "virt",
+                "bios":       "/usr/share/qemu-efi-aarch64/QEMU_EFI.fd",
+                "kernel":     "",
+                "extra_args": "",
+                "kvm":        False,
+            }
+        elif "arm" in arch:
+            defaults = {
+                "machine":    "virt",
+                "bios":       "",
+                "kernel":     "",
+                "extra_args": "",
+                "kvm":        False,
+            }
+
         return {
             "name":      name,
-            "arch":      self.arch_combo.get_active_text() or "x86_64",
+            "arch":      arch,
             "disk":      disk,
             "disk_size": size,
             "cpu":       int(self.cpu_spin.get_value()),
             "ram":       int(self.ram_spin.get_value()),
             "iso":       "",
-            "kvm":       True,
+            "kvm":       defaults.get("kvm", True),
+            "machine":   defaults.get("machine", ""),
+            "bios":      defaults.get("bios", ""),
+            "kernel":    defaults.get("kernel", ""),
+            "extra_args":defaults.get("extra_args", ""),
         }
 
 #  SETTINGS DIALOG
@@ -1039,7 +1073,7 @@ class EssoraVM(Gtk.Window):
 
         # Version subtitle
         ver_lbl = Gtk.Label(); ver_lbl.set_halign(Gtk.Align.CENTER)
-        ver_lbl.set_markup('<span size="12000" foreground="#a6adc8">Version 1.2</span>')
+        ver_lbl.set_markup('<span size="12000" foreground="#a6adc8">Version 1.3</span>')
         top.pack_start(ver_lbl, False, False, 0)
 
         ca.pack_start(top, False, False, 0)
@@ -1061,7 +1095,7 @@ class EssoraVM(Gtk.Window):
             v.set_markup(f'<span size="11500" weight="bold" foreground="#f3f4f6">{val}</span>')
             grid.attach(k, 0, r, 1, 1); grid.attach(v, 1, r, 1, 1)
 
-        _row(grid, 0, tr.get("about_version", "Version"),  "1.2")
+        _row(grid, 0, tr.get("about_version", "Version"),  "1.3")
         _row(grid, 1, tr.get("about_author",  "Author"),   "josejp2424")
         _row(grid, 2, tr.get("about_dev",     "Role"),     "Essora Developer")
         _row(grid, 3, tr.get("about_license", "License"),  "GPL-3.0")
@@ -1326,10 +1360,19 @@ class EssoraVM(Gtk.Window):
         bottom_row = Gtk.Box(spacing=16)
         self._kvm_check = Gtk.CheckButton(label=tr.get("enable_kvm", "Enable KVM"))
         self._kvm_check.set_tooltip_text(tr.get("kvm_tooltip", "Uses kernel driver for near-native performance."))
-        self._kvm_check.set_active(vm.get("kvm", True))
-        if not os.path.exists("/dev/kvm"):
+
+        _kvm_arch = vm.get("arch", "x86_64")
+        _kvm_non_x86 = ("riscv" in _kvm_arch or "arm" in _kvm_arch or "aarch" in _kvm_arch or "mips" in _kvm_arch or "ppc" in _kvm_arch or "s390" in _kvm_arch or "sparc" in _kvm_arch)
+        if _kvm_non_x86:
+            self._kvm_check.set_active(False)
+            self._kvm_check.set_sensitive(False)
+            self._kvm_check.set_tooltip_text("KVM not available for non-x86 guests on x86 host.")
+        elif not os.path.exists("/dev/kvm"):
+            self._kvm_check.set_active(False)
             self._kvm_check.set_sensitive(False)
             self._kvm_check.set_tooltip_text("/dev/kvm not available on this system.")
+        else:
+            self._kvm_check.set_active(vm.get("kvm", True))
         btn_save_cfg = Gtk.Button(label=tr["save"])
         add_class(btn_save_cfg, "btn-restart")
         btn_save_cfg.connect("clicked", self._on_save_cfg)
@@ -1337,6 +1380,98 @@ class EssoraVM(Gtk.Window):
         bottom_row.pack_start(Gtk.Label(), True, True, 0)
         bottom_row.pack_start(btn_save_cfg, False, False, 0)
         cfg.pack_start(bottom_row, False, False, 0)
+
+        # Non-x86 fields: only shown for riscv64, arm, aarch64, etc.
+        _arch = vm.get("arch", "x86_64")
+        _needs_extra = ("riscv" in _arch or "arm" in _arch or "aarch" in _arch or "mips" in _arch or "ppc" in _arch or "s390" in _arch or "sparc" in _arch)
+        if _needs_extra:
+            cfg.pack_start(Gtk.Separator(), False, False, 4)
+
+            tip = Gtk.Label(label="RISC-V / ARM — required fields")
+            add_class(tip, "config-label")
+            tip.set_halign(Gtk.Align.START)
+            tip.set_markup('<span foreground="#4ade80" size="9500">RISC-V / ARM — required fields</span>')
+            cfg.pack_start(tip, False, False, 0)
+
+            # Machine type
+            mach_row = Gtk.Box(spacing=10)
+            mach_lbl = Gtk.Label(label="Machine:")
+            add_class(mach_lbl, "config-label")
+            mach_lbl.set_halign(Gtk.Align.START); mach_lbl.set_width_chars(16)
+            self._machine_entry = Gtk.Entry()
+            self._machine_entry.set_text(vm.get("machine", "virt"))
+            self._machine_entry.set_hexpand(True)
+            self._machine_entry.set_placeholder_text("virt  /  sifive_u  /  raspi3b")
+            mach_row.pack_start(mach_lbl, False, False, 0)
+            mach_row.pack_start(self._machine_entry, True, True, 0)
+            cfg.pack_start(mach_row, False, False, 0)
+
+            # Firmware / BIOS (OpenSBI for RISC-V)
+            bios_row = Gtk.Box(spacing=10)
+            bios_lbl = Gtk.Label(label="Firmware / BIOS:")
+            add_class(bios_lbl, "config-label")
+            bios_lbl.set_halign(Gtk.Align.START); bios_lbl.set_width_chars(16)
+            self._bios_entry = Gtk.Entry()
+            _bios_default = {
+                "riscv64": "/usr/lib/riscv64-linux-gnu/opensbi/generic/fw_dynamic.bin",
+                "aarch64": "/usr/share/qemu-efi-aarch64/QEMU_EFI.fd",
+            }
+            _bios_val = vm.get("bios") or _bios_default.get(_arch, "")
+            self._bios_entry.set_text(_bios_val)
+            self._bios_entry.set_hexpand(True)
+            self._bios_entry.set_placeholder_text(
+                "/usr/lib/riscv64-linux-gnu/opensbi/generic/fw_dynamic.bin")
+            btn_bios = Gtk.Button(label=tr["browse"])
+            btn_bios.connect("clicked", self._browse_bios)
+            bios_row.pack_start(bios_lbl, False, False, 0)
+            bios_row.pack_start(self._bios_entry, True, True, 0)
+            bios_row.pack_start(btn_bios, False, False, 0)
+            cfg.pack_start(bios_row, False, False, 0)
+
+            # Kernel image (U-Boot or Linux kernel)
+            kern_row = Gtk.Box(spacing=10)
+            kern_lbl = Gtk.Label(label="Kernel / U-Boot:")
+            add_class(kern_lbl, "config-label")
+            kern_lbl.set_halign(Gtk.Align.START); kern_lbl.set_width_chars(16)
+            self._kernel_entry = Gtk.Entry()
+            _kernel_default = {
+                "riscv64": "/usr/lib/u-boot/qemu-riscv64_smode/uboot.elf",
+            }
+            _kern_val = vm.get("kernel") or _kernel_default.get(_arch, "")
+            self._kernel_entry.set_text(_kern_val)
+            self._kernel_entry.set_hexpand(True)
+            self._kernel_entry.set_placeholder_text("u-boot.bin  /  Image  /  vmlinuz")
+            btn_kern = Gtk.Button(label=tr["browse"])
+            btn_kern.connect("clicked", self._browse_kernel)
+            kern_row.pack_start(kern_lbl, False, False, 0)
+            kern_row.pack_start(self._kernel_entry, True, True, 0)
+            kern_row.pack_start(btn_kern, False, False, 0)
+            cfg.pack_start(kern_row, False, False, 0)
+
+            # Extra QEMU args
+            extra_row = Gtk.Box(spacing=10)
+            extra_lbl = Gtk.Label(label="Extra args:")
+            add_class(extra_lbl, "config-label")
+            extra_lbl.set_halign(Gtk.Align.START); extra_lbl.set_width_chars(16)
+            self._extra_entry = Gtk.Entry()
+            _extra_default = {
+                "riscv64": "",
+                "aarch64": "",
+                "arm":     "",
+            }
+            _extra_val = vm.get("extra_args") or _extra_default.get(_arch, "")
+            self._extra_entry.set_text(_extra_val)
+            self._extra_entry.set_hexpand(True)
+            self._extra_entry.set_placeholder_text("-nographic  /  -serial mon:stdio")
+            extra_row.pack_start(extra_lbl, False, False, 0)
+            extra_row.pack_start(self._extra_entry, True, True, 0)
+            cfg.pack_start(extra_row, False, False, 0)
+
+        else:  # x86/amd64 — no extra fields needed
+            self._machine_entry = None
+            self._bios_entry    = None
+            self._kernel_entry  = None
+            self._extra_entry   = None
 
         outer.show_all()
         return outer
@@ -1535,28 +1670,50 @@ class EssoraVM(Gtk.Window):
         except Exception:
             pass
 
+        _needs_extra = ("riscv" in arch or "arm" in arch or "aarch" in arch or "mips" in arch or "ppc" in arch or "s390" in arch or "sparc" in arch)
+
         cmd = [qemu_bin]
-        cmd += ["-boot", boot]
         cmd += ["-m", str(ram)]
         cmd += ["-smp", str(cpu)]
-
         cmd += ["-monitor", f"unix:{sock_path},server,nowait"]
 
-        # KVM — exactly like qemu-gui
-        if use_kvm and os.path.exists("/dev/kvm"):
-            cmd.append("-enable-kvm")
+        if _needs_extra:
+            # RISC-V / ARM: machine, firmware, kernel
+            machine = vm.get("machine", "virt")
+            if machine:
+                cmd += ["-machine", machine]
+            bios = vm.get("bios", "")
+            if bios and os.path.isfile(bios):
+                cmd += ["-bios", bios]
+            kernel = vm.get("kernel", "")
+            if kernel and os.path.isfile(kernel):
+                cmd += ["-kernel", kernel]
+            if disk and os.path.isfile(disk):
+                cmd += ["-drive", f"file={disk},format=qcow2,if=none,id=hd0",
+                        "-device", "virtio-blk-device,drive=hd0"]
+            if iso and os.path.isfile(iso):
+                cmd += ["-drive", f"file={iso},format=raw,if=none,readonly=on,id=cd0",
+                        "-device", "virtio-blk-device,drive=cd0"]
+            cmd += ["-netdev", "user,id=net0",
+                    "-device", "virtio-net-device,netdev=net0"]
 
-        if disk and os.path.isfile(disk):
-            cmd += ["-hda", disk]
-        if iso and os.path.isfile(iso):
-
-            try:
-                mounts = open("/proc/mounts").read()
-                if iso in mounts:
-                    subprocess.run(["umount", iso], capture_output=True)
-            except Exception:
-                pass
-            cmd += ["-drive", f"file={iso},media=cdrom,readonly=on,format=raw"]
+            extra = vm.get("extra_args", "")
+            if extra.strip():
+                cmd += shlex.split(extra)
+        else:  
+            cmd += ["-boot", boot]
+            if use_kvm and os.path.exists("/dev/kvm"):
+                cmd.append("-enable-kvm")
+            if disk and os.path.isfile(disk):
+                cmd += ["-hda", disk]
+            if iso and os.path.isfile(iso):
+                try:
+                    mounts = open("/proc/mounts").read()
+                    if iso in mounts:
+                        subprocess.run(["umount", iso], capture_output=True)
+                except Exception:
+                    pass
+                cmd += ["-drive", f"file={iso},media=cdrom,readonly=on,format=raw"]
 
         env = os.environ.copy()
         env["QEMU_SOUND_DRV"] = "alsa"
@@ -1629,8 +1786,36 @@ class EssoraVM(Gtk.Window):
         except Exception:
             pass
         vm["kvm"] = self._kvm_check.get_active() if hasattr(self, "_kvm_check") else True
+        if hasattr(self, "_machine_entry") and self._machine_entry:
+            vm["machine"]    = self._machine_entry.get_text().strip()
+        if hasattr(self, "_bios_entry") and self._bios_entry:
+            vm["bios"]       = self._bios_entry.get_text().strip()
+        if hasattr(self, "_kernel_entry") and self._kernel_entry:
+            vm["kernel"]     = self._kernel_entry.get_text().strip()
+        if hasattr(self, "_extra_entry") and self._extra_entry:
+            vm["extra_args"] = self._extra_entry.get_text().strip()
         save_vms(self.vms)
         self._set_status(self.tr["saved"])
+
+    def _browse_bios(self, _):
+        d = Gtk.FileChooserDialog(title="Firmware / BIOS", parent=self,
+                                   action=Gtk.FileChooserAction.OPEN)
+        d.add_button(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)
+        d.add_button(Gtk.STOCK_OK, Gtk.ResponseType.OK)
+        if d.run() == Gtk.ResponseType.OK:
+            if hasattr(self, "_bios_entry") and self._bios_entry:
+                self._bios_entry.set_text(d.get_filename())
+        d.destroy()
+
+    def _browse_kernel(self, _):
+        d = Gtk.FileChooserDialog(title="Kernel / U-Boot Image", parent=self,
+                                   action=Gtk.FileChooserAction.OPEN)
+        d.add_button(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)
+        d.add_button(Gtk.STOCK_OK, Gtk.ResponseType.OK)
+        if d.run() == Gtk.ResponseType.OK:
+            if hasattr(self, "_kernel_entry") and self._kernel_entry:
+                self._kernel_entry.set_text(d.get_filename())
+        d.destroy()
 
     def _browse_iso(self, _):
         d = Gtk.FileChooserDialog(title=self.tr["iso_label"], parent=self,
